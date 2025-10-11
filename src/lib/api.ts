@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'https://steamdeck-server.onrender.com';
 
 let authToken: string | null = localStorage.getItem('authToken');
 
