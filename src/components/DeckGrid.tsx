@@ -48,20 +48,24 @@ export function DeckGrid({ programs, onProgramClick, onRefresh, showRefreshCta }
   }
 
   return (
-    <div className="flex-1 p-6 overflow-auto">
-      <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 max-w-6xl mx-auto">
+    <div className="flex-1 p-8 overflow-auto">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-6 max-w-7xl mx-auto">
         {programs.map((program, index) => (
           <motion.div
             key={program.id}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: index * 0.05 }}
+            className="flex flex-col items-center gap-3"
           >
             <DeckButton
               name={program.name}
               iconUrl={program.iconUrl}
               onClick={() => onProgramClick(program.name)}
             />
+            <span className="text-sm font-medium text-white text-center line-clamp-2 w-full px-1">
+              {program.name}
+            </span>
           </motion.div>
         ))}
       </div>

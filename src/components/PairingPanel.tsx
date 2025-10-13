@@ -1,6 +1,6 @@
-import { motion } from 'framer-motion';
-import { Cable } from 'lucide-react';
 import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Cable, RefreshCw } from 'lucide-react';
 import { setPairingCode } from '../lib/api';
 
 interface PairingPanelProps {

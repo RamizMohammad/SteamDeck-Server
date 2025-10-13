@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { PairingPanel } from './components/PairingPanel';
 import { StatusBar } from './components/StatusBar';
 import { DeckGrid } from './components/DeckGrid';
-import { ActivityLog, ActivityEntry } from './components/ActivityLog';
-import { AddAppModal } from './components/AddAppModal';
+import { ActivityEntry } from './components/ActivityLog';
+import { Sidebar } from './components/Sidebar';
 import { wsClient } from './lib/websocket';
 import { getMe, getPrograms } from './lib/api';
 
@@ -28,11 +27,10 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showPairingPanel, setShowPairingPanel] = useState(false);
-  const [showAddAppModal, setShowAddAppModal] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [theme, setTheme] = useState<'blue' | 'purple' | 'green' | 'orange'>('blue');
 
   const addLog = (type: 'info' | 'error' | 'warn', msg: string) => {
     setActivityLog((prev) => [...prev, { ts: new Date(), type, msg }]);
@@ -150,28 +148,6 @@ function App() {
     addLog('info', `Sent request to open ${programName}`);
   };
 
-  const handleRegenerateCode = () => {
-    wsClient.regenerateCode();
-    addLog('info', 'Requested receiver to regenerate code');
-  };
-
-  const handleAddAppSuccess = async () => {
-    try {
-      const { programs: updatedPrograms } = await getPrograms();
-      setPrograms(updatedPrograms);
-      addLog('info', 'Custom app added successfully');
-    } catch (error) {
-      addLog('error', 'Failed to refresh programs after adding app');
-    }
-  };
-
-  const cycleTheme = () => {
-    const themes: Array<'blue' | 'purple' | 'green' | 'orange'> = ['blue', 'purple', 'green', 'orange'];
-    const currentIndex = themes.indexOf(theme);
-    const nextTheme = themes[(currentIndex + 1) % themes.length];
-    setTheme(nextTheme);
-    document.documentElement.setAttribute('data-theme', nextTheme === 'blue' ? '' : nextTheme);
-  };
 
   if (showAuthModal) {
     return <AuthModal onSuccess={handleAuthSuccess} />;
@@ -190,12 +166,18 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col">
+      <Sidebar
+        isOpen={showSidebar}
+        onClose={() => setShowSidebar(false)}
+        entries={activityLog}
+      />
+
       <StatusBar
         pairingCode={user?.pairingCode}
         isConnected={isConnected}
         onRefresh={handleRefreshPrograms}
-        onRegenerateCode={handleRegenerateCode}
         onEditPairingCode={() => setShowPairingPanel(true)}
+        onToggleSidebar={() => setShowSidebar(!showSidebar)}
       />
 
       <DeckGrid
@@ -204,31 +186,6 @@ function App() {
         onRefresh={handleRefreshPrograms}
         showRefreshCta={showRefreshCta}
       />
-
-      <ActivityLog entries={activityLog} />
-
-      <button
-        onClick={() => setShowAddAppModal(true)}
-        className="fixed bottom-24 right-6 p-4 bg-[var(--accent)] text-white rounded-full shadow-lg shadow-[var(--accent)]/30 hover:brightness-110 transition-all hover:scale-110"
-        title="Add Custom App"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
-
-      <button
-        onClick={cycleTheme}
-        className="fixed bottom-6 right-6 px-4 py-2 bg-white/5 border border-white/10 text-white text-xs font-medium rounded-lg hover:bg-white/10 transition-all"
-        title="Change Theme"
-      >
-        Theme: {theme}
-      </button>
-
-      {showAddAppModal && (
-        <AddAppModal
-          onClose={() => setShowAddAppModal(false)}
-          onSuccess={handleAddAppSuccess}
-        />
-      )}
     </div>
   );
 }

@@ -42,19 +42,16 @@ export function DeckButton({ name, iconUrl, onClick }: DeckButtonProps) {
         />
       )}
 
-      <div className="relative z-10 flex flex-col items-center justify-center h-full p-4">
+      <div className="relative z-10 flex items-center justify-center h-full p-4">
         {iconUrl ? (
-          <img src={iconUrl} alt={name} className="w-12 h-12 mb-2 object-contain" />
+          <img src={iconUrl} alt={name} className="w-full h-full object-contain" />
         ) : (
-          <div className="w-12 h-12 mb-2 rounded-lg bg-[var(--accent)]/20 flex items-center justify-center">
-            <span className="text-2xl font-bold text-[var(--accent)]">
+          <div className="w-3/4 h-3/4 rounded-lg bg-[var(--accent)]/20 flex items-center justify-center">
+            <span className="text-4xl font-bold text-[var(--accent)]">
               {name.charAt(0).toUpperCase()}
             </span>
           </div>
         )}
-        <span className="text-sm font-semibold text-white text-center line-clamp-2">
-          {name}
-        </span>
       </div>
 
       <div
