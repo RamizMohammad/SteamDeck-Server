@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'https://steamdeck-server.onrender.com';
+const API_URL = import.meta.env.VITE_AP_URL || 'https://api.server.linkium.space';
 
 let authToken: string | null = localStorage.getItem('authToken');
 
