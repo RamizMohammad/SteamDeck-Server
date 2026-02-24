@@ -1,0 +1,47 @@
+name: Deploy SteamDeck Server to VPS
+
+on:
+  push:
+    branches:
+      - server   # Trigger only when server branch is updated
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.VPS }}
+
+      - name: Add VPS to known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.VPS_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy on VPS
+        run: |
+          ssh root@${{ secrets.VPS_IP }} << 'EOF'
+            echo "🚀 Starting SteamDeck deployment..."
+
+            cd /root/Projects/SteamDeck-Server || exit
+
+            echo "📥 Pull latest code from server branch"
+            git fetch origin server
+            git checkout server
+            git reset --hard origin/server
+
+            echo "🔨 Building and starting containers"
+            docker compose up -d --build
+
+            echo "🧹 Cleaning unused images"
+            docker image prune -f
+
+            echo "🔄 Restarting nginx (if needed)"
+            docker restart central_nginx || true
+
+            echo "✅ Deployment completed"
+          EOF
