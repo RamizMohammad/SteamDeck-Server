@@ -1,4 +1,4 @@
-const WS_URL = import.meta.env.VITE_WS_URL || 'wss://steamdeck.onrender.com';
+const WS_URL = import.meta.env.VITE_WS_URL || 'wss://user.side.api.linkium.space';
 
 type MessageHandler = (message: any) => void;
 
