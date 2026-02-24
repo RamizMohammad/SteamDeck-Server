@@ -2,7 +2,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import { createServer } from 'http';
-import fetch from 'node-fetch'; // <— Add this import
 import { closeMongoConnection, connectToMongoDB } from './db/mongodb';
 import activityRoutes from './routes/activity';
 import authRoutes from './routes/auth';
@@ -13,63 +12,63 @@ import { setupWebSocketServer } from './websocket';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8002;
 
 app.use(cors());
 app.use(express.json());
 
+// =========================
+// Routes
+// =========================
 app.use('/api', authRoutes);
 app.use('/api', pairingRoutes);
 app.use('/api', programsRoutes);
 app.use('/api', activityRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Stream Deck API is running' });
+  res.json({
+    status: 'ok',
+    service: 'Linkium API',
+    websocket: 'wss://api.seerver.linkium.space/ws'
+  });
 });
 
+// =========================
+// HTTP + WebSocket Server
+// =========================
 const server = createServer(app);
-
 setupWebSocketServer(server);
 
+// =========================
+// Start
+// =========================
 async function start() {
   try {
     await connectToMongoDB();
 
     server.listen(PORT, () => {
+      console.log('=================================');
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📡 WebSocket available at ws://localhost:${PORT}/ws`);
-      console.log(`🌐 Frontend URL: https://steamdeck.onrender.com`);
-      keepAlive(); // <— Start keep-alive loop after server is up
+      console.log(`🌐 API: https://api.seerver.linkium.space`);
+      console.log(`📡 WebSocket: wss://api.seerver.linkium.space/ws`);
+      console.log('=================================');
     });
-  } catch (error) {
-    console.error('Failed to start server:', error);
+  } catch (err) {
+    console.error('Startup error:', err);
     process.exit(1);
   }
 }
 
-// 🩵 KEEP ALIVE FUNCTION
-function keepAlive() {
-  const SELF_URL = process.env.SELF_URL || 'https://steamdeck-server.onrender.com'; // 🔁 Replace or use env
-  setInterval(async () => {
-    try {
-      const res = await fetch(`${SELF_URL}/api/health`);
-      console.log(`[KEEP-ALIVE] Pinged ${SELF_URL}/api/health at ${new Date().toISOString()} - Status: ${res.status}`);
-    } catch (err) {
-      console.error(`[KEEP-ALIVE ERROR] ${err.message}`);
-    }
-  }, 4.5 * 60 * 1000); // every 4.5 minutes
+// =========================
+// Graceful Shutdown
+// =========================
+async function shutdown() {
+  console.log('\n🛑 Shutting down...');
+  await closeMongoConnection();
+  server.close(() => process.exit(0));
 }
 
-process.on('SIGINT', async () => {
-  console.log('\n🛑 Shutting down gracefully...');
-  await closeMongoConnection();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('\n🛑 Shutting down gracefully...');
-  await closeMongoConnection();
-  process.exit(0);
-});
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 start();
