@@ -25,7 +25,7 @@ const allowedOrigins = [
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // Allow non-browser requests (curl, Postman, mobile apps)
+    // Allow non-browser requests (Postman, curl, mobile apps)
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
@@ -40,14 +40,28 @@ const corsOptions: cors.CorsOptions = {
   credentials: true,
 };
 
-// Apply CORS
+// Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Handle preflight for all routes
-app.options('*', cors(corsOptions));
+// ======================================
+// FIX: Express v5 compatible preflight
+// (DO NOT use '*' — it crashes path-to-regexp)
+// ======================================
+app.options(/.*/, cors(corsOptions));
 
 // Parse JSON
 app.use(express.json());
+
+// ======================================
+// Health Check (before other routes)
+// ======================================
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'Linkium API',
+    websocket: 'wss://api.seerver.linkium.space/ws',
+  });
+});
 
 // ======================================
 // Routes
@@ -56,14 +70,6 @@ app.use('/api', authRoutes);
 app.use('/api', pairingRoutes);
 app.use('/api', programsRoutes);
 app.use('/api', activityRoutes);
-
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'Linkium API',
-    websocket: 'wss://api.seerver.linkium.space/ws',
-  });
-});
 
 // ======================================
 // HTTP + WebSocket Server
