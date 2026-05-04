@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
-import { AuthModal } from './components/AuthModal';
-import { PairingPanel } from './components/PairingPanel';
-import { StatusBar } from './components/StatusBar';
-import { DeckGrid } from './components/DeckGrid';
+import { useEffect, useState } from 'react';
 import { ActivityEntry } from './components/ActivityLog';
+import { AuthModal } from './components/AuthModal';
+import { DeckGrid } from './components/DeckGrid';
+import { PairingPanel } from './components/PairingPanel';
 import { Sidebar } from './components/Sidebar';
-import { wsClient } from './lib/websocket';
+import { StatusBar } from './components/StatusBar';
 import { getMe, getPrograms } from './lib/api';
+import { wsClient } from './lib/websocket';
 
 interface User {
   _id: string;
@@ -53,10 +53,7 @@ function App() {
       if (!userData.pairingCode) {
         setShowPairingPanel(true);
       } else {
-        // Load cached programs from MongoDB immediately
         loadCachedPrograms();
-
-        // Connect to WebSocket and request fresh programs in background
         connectWebSocket(userData.pairingCode);
       }
     } catch (error) {
@@ -102,7 +99,6 @@ function App() {
       const connected = wsClient.isConnected();
       setIsConnected(connected);
 
-      // Auto-request fresh programs when connection is established (only once)
       if (connected && !hasRequestedPrograms) {
         hasRequestedPrograms = true;
         setTimeout(() => {
@@ -125,6 +121,7 @@ function App() {
     if (!userData.pairingCode) {
       setShowPairingPanel(true);
     } else {
+      loadCachedPrograms();
       connectWebSocket(userData.pairingCode);
     }
   };
@@ -147,7 +144,6 @@ function App() {
     wsClient.openProgram(programName);
     addLog('info', `Sent request to open ${programName}`);
   };
-
 
   if (showAuthModal) {
     return <AuthModal onSuccess={handleAuthSuccess} />;
