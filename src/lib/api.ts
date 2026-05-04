@@ -2,7 +2,7 @@
 // API Base URL
 // =============================
 const API_URL: string =
-  import.meta.env.VITE_API_URL || 'https://user.side.api.linkium.space';
+  import.meta.env.VITE_API_URL || 'https://api.server.linkium.space';
 
 
 // =============================
