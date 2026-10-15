@@ -18,8 +18,8 @@ const PORT = process.env.PORT || 8002;
 // CORS Configuration (Production Ready)
 // ======================================
 const allowedOrigins = [
-  'https://connection.linkium.space',
-  'https://linkium.space',
+  'https://connection.desksync.space',
+  'https://desksync.space',
   'http://localhost:5173',
 ];
 
@@ -59,7 +59,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'Linkium API',
-    websocket: 'wss://api.seerver.linkium.space/ws',
+    websocket: 'wss://api.server.desksync.space/ws',
   });
 });
 
@@ -87,8 +87,8 @@ async function start() {
     server.listen(PORT, () => {
       console.log('=================================');
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`🌐 API: https://user.side.api.linkium.space`);
-      console.log(`📡 WebSocket: wss://api.seerver.linkium.space/ws`);
+      console.log(`🌐 API: https://user.side.api.desksync.space`);
+      console.log(`📡 WebSocket: wss://api.server.desksync.space/ws`);
       console.log('=================================');
     });
   } catch (err) {
