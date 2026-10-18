@@ -20,14 +20,14 @@ over and verifies every user afterwards.
 ## Run
 
 ```bash
-cp .env.example .env              # set DATABASE_URL, DB_NETWORK, JWT_SECRET
+cp .env.example .env              # set DATABASE_URL, JWT_SECRET
 docker compose up -d --build      # API only; it uses the existing central-postgres container
 ```
 
 Without Docker: `pip install -r requirements.txt && uvicorn app.asgi:app --port 8002 --proxy-headers`.
 The schema (`app/schema.sql`) is applied automatically on startup and is safe to re-run.
 
-Set `CONTAINER_NAME` and `PROXY_NETWORK` in `.env` to whatever `central_nginx` already
+Set `CONTAINER_NAME` in `.env` to whatever `central_nginx` already
 proxies to. Always run **one worker**: WebSocket pairing groups live in process memory.
 
 ## Moving the data off MongoDB (cutover runbook)

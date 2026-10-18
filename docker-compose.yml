@@ -1,7 +1,8 @@
 # Two separate applications from one image:
 #   steamdeck-server  REST API + /ws    (app/)    port 8002
 #   linkium-relay     WebSocket relay   (relay/)  port 8003
-# Both join the nginx network and central-postgres's network. No database runs here.
+# Both join proxy_network, which central_nginx and central-postgres are also on;
+# the database is reached through DATABASE_URL. No database runs here.
 
 x-common: &common
   build: .
@@ -9,8 +10,7 @@ x-common: &common
   env_file: .env
   restart: unless-stopped
   networks:
-    - proxy   # reached by central_nginx
-    - db      # reaches central-postgres
+    - proxy_network   # central_nginx proxies in; DATABASE_URL reaches central-postgres
   stop_grace_period: 15s
   logging:
     driver: json-file
@@ -42,10 +42,5 @@ services:
       - ${RELAY_PORT:-8003}
 
 networks:
-  proxy:
+  proxy_network:
     external: true
-    name: ${PROXY_NETWORK:-proxy}
-  db:
-    external: true
-    # the Docker network central-postgres is attached to
-    name: ${DB_NETWORK:?set DB_NETWORK in .env (docker inspect central-postgres)}
