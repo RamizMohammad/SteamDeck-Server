@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.env.*
+tests
+*.sql
+
+# keep these even though *.sql / .env.* are ignored above
+!app/schema.sql
+!relay/schema.sql
+!.env.example
+*.sql
+scripts

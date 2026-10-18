@@ -1,0 +1,282 @@
+name: Deploy Linkium Server + Relay to VPS
+
+on:
+  push:
+    branches:
+      - master/vps
+
+concurrency:
+  group: linkium-server-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS }}
+
+      - name: Add VPS to known hosts
+        run: ssh-keyscan -H ${{ secrets.VPS_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy with backup + auto-rollback
+        id: deploy
+        shell: bash
+        run: |
+          set +e +o pipefail
+          START=$(date +%s)
+
+          ssh root@${{ secrets.VPS_IP }} bash 2>&1 <<'EOF' | tee /tmp/deploy.log
+          set -uo pipefail
+
+          APP_DIR=/root/Projects/SteamDeck-Server
+          CONTAINERS="steamdeck-server linkium-relay"   # API + relay (container_name in docker-compose.yml)
+          SERVICES="steamdeck-server linkium-relay"
+          BACKUP_BRANCH=backup
+          LAST_STATUS=unknown
+          BUILD_FAILED=0
+
+          mark() { echo "@@$1=$2"; }
+
+          cd "$APP_DIR" || { mark stage "app dir missing"; exit 1; }
+
+          # ---------- helpers ----------
+          wait_one() {
+            local CONTAINER=$1 stable=0
+            for i in $(seq 1 40); do
+              S=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER" 2>/dev/null || echo missing)
+              echo "  [$i] $CONTAINER: $S"
+              case "$S" in
+                healthy) LAST_STATUS="healthy"; return 0 ;;
+                unhealthy|exited|dead) LAST_STATUS="$S"; return 1 ;;
+                running)
+                  stable=$((stable+1))
+                  if [ "$stable" -ge 5 ]; then LAST_STATUS="running (no healthcheck)"; return 0; fi ;;
+                *) stable=0 ;;
+              esac
+              sleep 3
+            done
+            LAST_STATUS="timeout ($S)"
+            return 1
+          }
+
+          wait_healthy() {
+            local summary=""
+            for c in $CONTAINERS; do
+              if ! wait_one "$c"; then LAST_STATUS="$c: $LAST_STATUS"; return 1; fi
+              summary+="${summary:+, }$c $LAST_STATUS"
+            done
+            LAST_STATUS="$summary"
+            return 0
+          }
+
+          build_and_start() {
+            BUILD_FAILED=0
+            echo "===> Building image"
+            docker compose build $1 --progress=plain 2>&1 | tee /tmp/linkium_build.log
+            if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+              LAST_STATUS="build failed"; BUILD_FAILED=1; return 1
+            fi
+            echo "===> Starting containers"
+            docker compose up -d --remove-orphans || { LAST_STATUS="start failed"; return 1; }
+            echo "===> Waiting for health"
+            wait_healthy
+          }
+
+          dump_logs() {
+            echo "@@@LOGS_BEGIN"
+            if [ "$BUILD_FAILED" = 1 ]; then
+              tail -n 20 /tmp/linkium_build.log
+            else
+              docker compose logs --tail=20 --no-color $SERVICES 2>&1 || true
+            fi
+            echo "@@@LOGS_END"
+          }
+
+          # ---------- 1. Backup ----------
+          echo "===> Backing up current VPS code to '$BACKUP_BRANCH'"
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            git -c user.name="vps-deploy" -c user.email="deploy@vps" \
+              commit -am "VPS snapshot before deploy $(date -u '+%F %T')" \
+              || { mark stage "snapshot commit"; exit 1; }
+            mark snapshot yes
+          else
+            mark snapshot no
+          fi
+          PREV_SHA=$(git rev-parse HEAD)
+          mark backup_sha "$(git rev-parse --short HEAD)"
+          mark backup_full "$PREV_SHA"
+
+          if git push --force origin "HEAD:refs/heads/$BACKUP_BRANCH"; then
+            mark backup pushed
+          else
+            mark backup failed
+            mark stage "backup push"
+            exit 1
+          fi
+
+          # ---------- 2. Pull server ----------
+          echo "===> Pulling latest server"
+          { git fetch origin server && git reset --hard origin/server; } || { mark stage "git pull"; exit 1; }
+          NEW_SHA=$(git rev-parse HEAD)
+          mark new_sha "$(git rev-parse --short HEAD)"
+          mark files_changed "$(git diff --name-only "$PREV_SHA" "$NEW_SHA" | wc -l | tr -d ' ')"
+          mark diffstat "$(git diff --shortstat "$PREV_SHA" "$NEW_SHA" | sed 's/^ *//')"
+
+          # ---------- 3. Build new code ----------
+          if build_and_start "--no-cache"; then
+            mark new_result "$LAST_STATUS"
+            mark rollback not_needed
+            mark live new
+            mark live_sha "$(git rev-parse --short HEAD)"
+            docker compose ps
+            docker image prune -f
+            echo "===> Deployment completed successfully"
+            exit 0
+          fi
+
+          mark new_result "$LAST_STATUS"
+          echo "!!! New code FAILED ($LAST_STATUS)"
+          dump_logs
+
+          # ---------- 4. Rollback ----------
+          echo "===> Rolling back to '$BACKUP_BRANCH'"
+          if { git fetch origin "$BACKUP_BRANCH" && git reset --hard "origin/$BACKUP_BRANCH"; } \
+             && build_and_start ""; then
+            mark rollback ok
+            mark rollback_result "$LAST_STATUS"
+            mark live backup
+            mark live_sha "$(git rev-parse --short HEAD)"
+            docker compose ps
+            exit 2
+          fi
+
+          mark rollback failed
+          mark rollback_result "$LAST_STATUS"
+          mark live none
+          echo "!!! ROLLBACK ALSO FAILED"
+          exit 3
+          EOF
+
+          CODE=${PIPESTATUS[0]}
+          {
+            echo "code=$CODE"
+            echo "duration=$(( $(date +%s) - START ))"
+            grep -E '^@@[a-z_]+=' /tmp/deploy.log | sed 's/^@@//'
+          } >> "$GITHUB_OUTPUT"
+          exit $CODE
+
+      - name: Notify Telegram
+        if: always()
+        shell: bash
+        env:
+          CODE: ${{ steps.deploy.outputs.code }}
+          DURATION: ${{ steps.deploy.outputs.duration }}
+          STAGE: ${{ steps.deploy.outputs.stage }}
+          SNAPSHOT: ${{ steps.deploy.outputs.snapshot }}
+          BACKUP: ${{ steps.deploy.outputs.backup }}
+          BACKUP_SHA: ${{ steps.deploy.outputs.backup_sha }}
+          BACKUP_FULL: ${{ steps.deploy.outputs.backup_full }}
+          FILES: ${{ steps.deploy.outputs.files_changed }}
+          DIFFSTAT: ${{ steps.deploy.outputs.diffstat }}
+          NEW_RESULT: ${{ steps.deploy.outputs.new_result }}
+          ROLLBACK: ${{ steps.deploy.outputs.rollback }}
+          ROLLBACK_RESULT: ${{ steps.deploy.outputs.rollback_result }}
+          LIVE: ${{ steps.deploy.outputs.live }}
+          LIVE_SHA: ${{ steps.deploy.outputs.live_sha }}
+          BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          AUTHOR: ${{ github.event.head_commit.author.name }}
+          ACTOR: ${{ github.triggering_actor }}
+          SHA: ${{ github.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+          LINE="━━━━━━━━━━━━━━━━━━"
+          SHORT=${SHA:0:7}
+          TITLE=$(printf '%s' "$COMMIT_MSG" | head -n1 | esc)
+
+          case "$CODE" in
+            0) HEAD="✅ <b>Deployment Successful</b>"
+               FOOT="🚀 <i>New code is live on VPS</i>" ;;
+            2) HEAD="⚠️ <b>Deployment Failed, Rolled Back</b>"
+               FOOT="🛟 <i>New code NOT deployed, backup was rebuilt and is live</i>" ;;
+            3) HEAD="🚨 <b>Deployment &amp; Rollback Failed</b>"
+               FOOT="🔥 <i>API may be DOWN, manual action needed</i>" ;;
+            *) HEAD="❌ <b>Deployment Aborted</b>"
+               FOOT="🛑 <i>Stopped at: $(printf '%s' "${STAGE:-before deploy}" | esc). Running containers untouched</i>" ;;
+          esac
+
+          # Backup line
+          case "$BACKUP" in
+            pushed)
+              B="✅ Created → <a href=\"$REPO_URL/tree/backup\">backup</a> @ <code>$BACKUP_SHA</code>"
+              [ "$SNAPSHOT" = yes ] && B+=" (incl. uncommitted VPS edits)" ;;
+            failed) B="❌ Push to backup failed" ;;
+            *)      B="➖ Not reached" ;;
+          esac
+
+          # Rollback line
+          case "$ROLLBACK" in
+            not_needed) R="➖ Not needed" ;;
+            ok)         R="✅ Backup rebuilt (${ROLLBACK_RESULT})" ;;
+            failed)     R="❌ Failed (${ROLLBACK_RESULT:-unknown})" ;;
+            *)          R="➖ Not reached" ;;
+          esac
+
+          # Live line
+          case "$LIVE" in
+            new)    L="🆕 New code <code>$LIVE_SHA</code>" ;;
+            backup) L="🛟 Backup code <code>$LIVE_SHA</code>" ;;
+            none)   L="💀 Nothing healthy" ;;
+            *)      L="↩️ Previous containers (unchanged)" ;;
+          esac
+
+          MSG="$HEAD
+          $LINE
+          📁 <b>Project:</b> Linkium API + Relay
+          🌿 <b>Branch:</b> <code>server</code>
+            📝 <b>Commit:</b> <a href=\"$REPO_URL/commit/$SHA\">$SHORT</a>
+          💬 <b>Message:</b> $TITLE
+          👤 <b>Author:</b> $(printf '%s' "$AUTHOR" | esc)
+          🚀 <b>Triggered by:</b> $ACTOR
+          📂 <b>Files changed:</b> ${FILES:-n/a}${DIFFSTAT:+ ($DIFFSTAT)}
+          ⏱️ <b>Duration:</b> ${DURATION:-?}s
+          🕐 <b>Time:</b> $(date -u '+%Y-%m-%d %H:%M UTC')
+          $LINE
+          💾 <b>Backup:</b> $B
+          🏗️ <b>New code:</b> ${NEW_RESULT:-not built}
+          🔁 <b>Rollback:</b> $R
+          🟢 <b>Running now:</b> $L
+          $LINE
+          $FOOT"
+
+          # Attach error logs on failure
+          if [ "$CODE" = 2 ] || [ "$CODE" = 3 ]; then
+            LOGS=$(sed -n '/^@@@LOGS_BEGIN/,/^@@@LOGS_END/{//!p}' /tmp/deploy.log 2>/dev/null \
+                   | sed 's/\x1b\[[0-9;]*m//g' | tail -n 15 | tail -c 1500 | esc)
+            [ -n "$LOGS" ] && MSG+=$'\n\n'"📄 <b>Last logs (new code):</b>"$'\n'"<pre>$LOGS</pre>"
+          fi
+
+          LINKS="🔗 <a href=\"$REPO_URL/commit/$SHA\">View commit</a>"
+          [ -n "$BACKUP_FULL" ] && LINKS+=" · <a href=\"$REPO_URL/compare/$BACKUP_FULL...$SHA\">Diff vs backup</a>"
+          LINKS+=" · <a href=\"$RUN_URL\">Workflow run</a>"
+          MSG+=$'\n\n'"$LINKS"$'\n'"👤 <a href=\"https://github.com/$ACTOR\">$ACTOR on GitHub</a>"
+
+          RESP=$(curl -s -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            --data-urlencode chat_id="$CHAT" \
+            --data-urlencode parse_mode=HTML \
+            --data-urlencode text="$MSG")
+
+          # If HTML parsing fails for any reason, still send a plain version
+          if ! echo "$RESP" | grep -q '"ok":true'; then
+            echo "HTML send failed: $RESP"
+            PLAIN=$(printf '%s' "$MSG" | sed -e 's/<[^>]*>//g' -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g')
+            curl -s -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+              --data-urlencode chat_id="$CHAT" \
+              --data-urlencode text="$PLAIN" > /dev/null
+          fi

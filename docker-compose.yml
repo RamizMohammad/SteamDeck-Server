@@ -1,0 +1,51 @@
+# Two separate applications from one image:
+#   steamdeck-server  REST API + /ws    (app/)    port 8002
+#   linkium-relay     WebSocket relay   (relay/)  port 8003
+# Both join the nginx network and central-postgres's network. No database runs here.
+
+x-common: &common
+  build: .
+  image: linkium-server:latest
+  env_file: .env
+  restart: unless-stopped
+  networks:
+    - proxy   # reached by central_nginx
+    - db      # reaches central-postgres
+  stop_grace_period: 15s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  steamdeck-server:
+    <<: *common
+    # Keep the same container name your central_nginx already proxies to.
+    container_name: ${CONTAINER_NAME:-steamdeck-server}
+    environment:
+      APP_MODULE: app.asgi:app
+      PORT: "8002"
+      HEALTH_PATH: /api/health
+    expose:
+      - "8002"
+
+  linkium-relay:
+    <<: *common
+    # Set RELAY_CONTAINER_NAME to the old relay's container name to keep nginx unchanged.
+    container_name: ${RELAY_CONTAINER_NAME:-linkium-relay}
+    environment:
+      APP_MODULE: relay.asgi:app
+      PORT: ${RELAY_PORT:-8003}
+      HEALTH_PATH: /ping
+    expose:
+      - ${RELAY_PORT:-8003}
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
+  db:
+    external: true
+    # the Docker network central-postgres is attached to
+    name: ${DB_NETWORK:?set DB_NETWORK in .env (docker inspect central-postgres)}
